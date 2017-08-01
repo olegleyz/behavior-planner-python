@@ -65,7 +65,7 @@ class Vehicle(object):
     # self.state = "KL" # this is an example of how you change state.
   
   def _get_next_state(self, predictions):
-    states = ["KL", "LCL", "LCR"]
+    states = ["KL", "LCL", "LCR", "PLCL", "PLCR"]
     if  self.lane == 0:
       states.remove("LCL")
     if self.lane == (self.lanes_available -1):
@@ -140,7 +140,7 @@ class Vehicle(object):
     return s
       
   def increment(self, dt=1):
-    self.s += self.v * dt
+    self.s += self.v * dt # shouldn't that be changed to v*dt + a*dt^2/2?
     self.v += self.a * dt
       
   def state_at(self, t):
@@ -204,8 +204,41 @@ class Vehicle(object):
     self.a = self._max_accel_for_lane(predictions, self.lane, self.s)
 
   def realize_prep_lane_change(self, predictions, direction):
+    #print ("my PLC")
     delta = -1
-    if direction == "L": delta = 1
+    if direction == "R": delta = 1
+    lane = self.lane + delta
+    ids_and_vehicles = [(v_id, v) for (v_id, v) in predictions.items() if v[0]['lane'] == lane]
+    if len(ids_and_vehicles) > 0:
+      a_min = -2
+
+      vehicles = [v[1] for v in ids_and_vehicles]
+      nearest = min(ids_and_vehicles, key=lambda v: (v[1][0]['s']-self.s)*(v[1][0]['s']-self.s))
+      target_vel = nearest[1][1]['s']-nearest[1][0]['s']
+      delta_v = target_vel - self.v
+      
+      predictions_copy = deepcopy(predictions)
+      for v_id, v in predictions_copy.items():
+        v.pop(0)
+      a0_max = self._max_accel_for_lane(predictions, self.lane, self.s)
+      a1_max = self._max_accel_for_lane(predictions_copy, lane, self.s+self.v+0.5*a0_max)
+      if 2*a_min <= delta_v <= a0_max+a1_max:
+        s1_max = int(self.s + self.v + 0.5 * a0_max)
+        s1_min = self.s + self.v + 0.5 * a_min
+        if int(s1_min)<s1_min:
+          s1_min = int(s1_min) + 1
+        else: 
+          s1_min = int(s1_min)
+        for i in range (s1_max, s1_min, -1):
+          if (i not in [v[1]['s'] for v in vehicles]):
+            a = 2*(i - self.s - self.v)
+            self.a = a
+      self.a = self._max_accel_for_lane(predictions, self.lane, self.s)
+
+
+  def realize_prep_lane_change2(self, predictions, direction):
+    delta = -1
+    if direction == "R": delta = 1
     lane = self.lane + delta
     ids_and_vehicles = [(v_id, v) for (v_id, v) in predictions.items() if v[0]['lane'] == lane and v[0]['s'] <= self.s]
     if len(ids_and_vehicles) > 0:
@@ -215,6 +248,7 @@ class Vehicle(object):
 
       print ("nearest behind : {}".format(nearest_behind))
       nearest_behind = nearest_behind[1]
+
       target_vel = nearest_behind[1]['s'] - nearest_behind[0]['s']
       delta_v = self.v - target_vel
       delta_s = self.s - nearest_behind[0]['s']
